@@ -1,0 +1,9 @@
+.DS_Store
+__pycache__
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.ico
