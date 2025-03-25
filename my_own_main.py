@@ -126,10 +126,13 @@ def rgba2gray(image):
     return skimage.color.rgb2gray(im)
 
 
-def stitch_images(fragments, downsample_factor=1, use_skimage=False):
+def stitch_images(fragments, downsample_factor=1, order=1, use_skimage=False):
     """Stitch a list of fragments together."""
+    # Crop the fragments to be divisible by downsample_factor
+    fragments = [fragment[:(fragment.shape[0] // downsample_factor) * downsample_factor, :(fragment.shape[1] // downsample_factor) * downsample_factor] for fragment in fragments]
+
     # Downsample the fragments
-    downsampled_fragments = Parallel(n_jobs=-1)(delayed(skimage.transform.resize)(fragment, (fragment.shape[0] // downsample_factor, fragment.shape[1] // downsample_factor), order=1, anti_aliasing=True) \
+    downsampled_fragments = Parallel(n_jobs=-1)(delayed(skimage.transform.resize)(fragment, (fragment.shape[0] // downsample_factor, fragment.shape[1] // downsample_factor), order=order, anti_aliasing=True if order > 0 else False) \
         for fragment in tqdm(fragments, desc="Downsampling fragments"))
     assert len(fragments) == len(downsampled_fragments)
     # Iterate through the fragments and compute the offset for each fragment against each other fragment
@@ -162,7 +165,7 @@ def stitch_images(fragments, downsample_factor=1, use_skimage=False):
     est_offsets = {0: running_offset.copy()}
     placed_fragments = {0}
     # Gather all absolute offsets for each fragment
-    MAX_ITER = 3 * len(fragments)
+    MAX_ITER = 4 * len(fragments)
     for _ in range(MAX_ITER):
         error_row = error_matrix[f1_idx].copy()
         # error_row[placed_fragments] = 1e6
@@ -191,7 +194,7 @@ def stitch_images(fragments, downsample_factor=1, use_skimage=False):
     # assert placed_fragments[-1] == 0, f"{placed_fragments=}"
     # placed_fragments = placed_fragments[:-1]
         
-    # assert len(est_offsets) == len(fragments), f"{len(est_offsets)=} {len(fragments)=}"
+    assert len(est_offsets) == len(fragments), f"{len(est_offsets)=} {len(fragments)=}"
     # assert len(placed_fragments) == len(fragments), f"{len(placed_fragments)=} {len(fragments)=}"
     # assert sorted(placed_fragments) == list(range(len(fragments))), f"{placed_fragments=}"
     
@@ -204,15 +207,38 @@ def stitch_images(fragments, downsample_factor=1, use_skimage=False):
     print(f"{composite_shape=}")
     composite = np.zeros(composite_shape)
     counts = np.zeros(composite_shape)
-    for f1_idx, offset in est_offsets.items():
+    for iter_num, (f1_idx, offset) in tqdm(enumerate(est_offsets.items()), total=len(est_offsets), desc="Stitching fragments"):
         image_fragment = fragments[f1_idx]
         offset = offset - min_offset
         start_r = int(offset[0])
         start_c = int(offset[1])
         end_r = int(start_r + image_fragment.shape[0])
         end_c = int(start_c + image_fragment.shape[1])
-        composite[start_r:end_r, start_c:end_c] += image_fragment
-        counts[start_r:end_r, start_c:end_c] += 1
+        if iter_num == 0:
+            composite[start_r:end_r, start_c:end_c] += image_fragment
+            counts[start_r:end_r, start_c:end_c] += 1
+        else:
+            # Fine-tune the offset
+            additional_offset, _ = phase_correlation(composite[start_r:end_r, start_c:end_c], image_fragment, downsample_factor=1, use_skimage=use_skimage)
+            offset += additional_offset
+            start_r = int(offset[0])
+            start_c = int(offset[1])
+            end_r = int(start_r + image_fragment.shape[0])
+            end_c = int(start_c + image_fragment.shape[1])
+            if start_r < 0:
+                image_fragment = image_fragment[-start_r:]
+                start_r = 0
+            if start_c < 0:
+                image_fragment = image_fragment[:, -start_c:]
+                start_c = 0
+            if end_r > composite.shape[0]:
+                image_fragment = image_fragment[:composite.shape[0] - end_r]
+                end_r = composite.shape[0]
+            if end_c > composite.shape[1]:
+                image_fragment = image_fragment[:, :composite.shape[1] - end_c]
+                end_c = composite.shape[1]
+            composite[start_r:end_r, start_c:end_c] += image_fragment
+            counts[start_r:end_r, start_c:end_c] += 1
     counts[counts == 0] = 1
     composite /= counts
         
@@ -240,8 +266,8 @@ if __name__ == "__main__":
     
     # Downsample the fragments
     downsample_factor = 4
-    
-    stitched, est_offsets = stitch_images(fragments, downsample_factor, use_skimage=False)
+    order = 1
+    stitched, est_offsets = stitch_images(fragments, downsample_factor=downsample_factor, order=order, use_skimage=False)
 
     # print("Estimated Offsets:")
     # for (idx, off) in est_offsets.items():
