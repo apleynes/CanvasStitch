@@ -65,7 +65,7 @@ def combine(composite, f2, offset):
 
 
 phase_correlation_cache = {}
-def phase_correlation(image_a, image_b, correlation_threshold=0., downsample_factor=1, use_skimage=False):
+def phase_correlation(image_a, image_b, correlation_threshold=0., downsample_factor=1, use_skimage=False, full_convolution=True):
     """
     Compute the relative translation between image_a and image_b
     using phase correlation. Both images must have the same shape.
@@ -97,7 +97,7 @@ def phase_correlation(image_a, image_b, correlation_threshold=0., downsample_fac
         shift = shift * downsample_factor
         return shift, -error #-error - phasediff
     
-    fft_shape = 2 * pad_shape + 1
+    fft_shape = 2 * pad_shape + 1 if full_convolution else pad_shape
     
     F_a = fft2(image_a, fft_shape, norm='ortho')
     F_b = fft2(image_b, fft_shape, norm='ortho')
@@ -219,7 +219,7 @@ def stitch_images(fragments, downsample_factor=1, order=1, use_skimage=False):
             counts[start_r:end_r, start_c:end_c] += 1
         else:
             # Fine-tune the offset
-            additional_offset, _ = phase_correlation(composite[start_r:end_r, start_c:end_c], image_fragment, downsample_factor=1, use_skimage=use_skimage)
+            additional_offset, _ = phase_correlation(composite[start_r:end_r, start_c:end_c], image_fragment, downsample_factor=1, use_skimage=use_skimage, full_convolution=False)
             offset += additional_offset
             start_r = int(offset[0])
             start_c = int(offset[1])
