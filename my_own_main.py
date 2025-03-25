@@ -63,6 +63,8 @@ def combine(composite, f2, offset):
     new_composite /= counts
     return new_composite
 
+
+phase_correlation_cache = {}
 def phase_correlation(image_a, image_b, correlation_threshold=0., downsample_factor=1, use_skimage=False):
     """
     Compute the relative translation between image_a and image_b
@@ -77,16 +79,20 @@ def phase_correlation(image_a, image_b, correlation_threshold=0., downsample_fac
        Kuglin, C. D., & Hines, D. C. (1975). The phase correlation technique.
        [See also: https://docs.opencv.org/]
     """
+    # key = (image_a.tobytes(), image_b.tobytes())
+    # if key in phase_correlation_cache:
+    #     return phase_correlation_cache[key]
+
     # Compute FFTs of both images.
     pad_shape = np.array([max(image_a.shape[0], image_b.shape[0]), max(image_a.shape[1], image_b.shape[1])])
-    # Pad images to the same size, centered on the middle of the output shape
-    image_a, _ = pad_image(image_a, pad_shape)
-    image_b, _ = pad_image(image_b, pad_shape)
     
     image_a = rgba2gray(image_a)
     image_b = rgba2gray(image_b)
     
     if use_skimage:
+        # Pad images to the same size, centered on the middle of the output shape
+        image_a, _ = pad_image(image_a, pad_shape)
+        image_b, _ = pad_image(image_b, pad_shape)
         shift, error, phasediff = phase_cross_correlation(image_a, image_b, disambiguate=True, overlap_ratio=correlation_threshold, normalization=None)
         shift = shift * downsample_factor
         return shift, -error #-error - phasediff
@@ -156,7 +162,7 @@ def stitch_images(fragments, downsample_factor=1, use_skimage=False):
     est_offsets = {0: running_offset.copy()}
     placed_fragments = {0}
     # Gather all absolute offsets for each fragment
-    MAX_ITER = 2 *len(fragments)
+    MAX_ITER = 3 * len(fragments)
     for _ in range(MAX_ITER):
         error_row = error_matrix[f1_idx].copy()
         # error_row[placed_fragments] = 1e6
@@ -212,13 +218,24 @@ def stitch_images(fragments, downsample_factor=1, use_skimage=False):
         
     return composite, est_offsets
 
+
+def new_stitch_images(fragments, downsample_factor=1, use_skimage=False):
+    """Stitch a list of fragments together."""
+    # Downsample the fragments
+    downsampled_fragments = Parallel(n_jobs=-1)(delayed(skimage.transform.resize)(fragment, (fragment.shape[0] // downsample_factor, fragment.shape[1] // downsample_factor), order=1, anti_aliasing=True) \
+        for fragment in tqdm(fragments, desc="Downsampling fragments"))
+    assert len(fragments) == len(downsampled_fragments)
+    
+
+
+
 if __name__ == "__main__":    
     import matplotlib.pyplot as plt
     from PIL import Image
     
     image_paths = glob.glob("image_dir/*.png")
     image_paths = natsort.natsorted(image_paths)
-    fragments = [np.array(Image.open(path)) / 255.0 for path in image_paths][:10]
+    fragments = [np.array(Image.open(path)) / 255.0 for path in image_paths] #[:10]
     # random.shuffle(fragments)
     
     # Downsample the fragments
