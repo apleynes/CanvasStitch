@@ -83,21 +83,27 @@ def combine(composite, f2, offset):
 
 
 
-def weight_edge_image_ft(image_ft, sigma=0.1, rfft=False):
+def weight_edge_image_ft(image_ft, power=2, rfft=False):
     shape = image_ft.shape
     if not rfft:
         grid = np.meshgrid(*[np.linspace(-1, 1, s) for s in shape], indexing='ij')
         grid = np.stack(grid, axis=-1)
         dists = np.linalg.norm(grid, axis=-1)
-        weights = np.exp(-dists**2 / (2 * sigma**2))
-        weights = ifftshift(weights)
-        return weights * image_ft
+        dists = ifftshift(dists)
     else:
-        grid = np.meshgrid(*[np.linspace(0, 1, s) for s in shape], indexing='ij')
+        # TODO: Fix this. Only the last axis is halved in size by default behavior of rfftn.
+        coords = []
+        for i in range(len(shape)):
+            if i == len(shape) - 1:
+                coords.append(np.linspace(0, 1, shape[i]))
+                continue
+            c = np.linspace(-1, 1, shape[i])
+            coords.append(np.roll(c, shift=-np.where(np.isclose(c.flatten(), 0))[0]))
+        grid = np.meshgrid(*coords, indexing='ij')
         grid = np.stack(grid, axis=-1)
         dists = np.linalg.norm(grid, axis=-1)
-        weights = np.exp(-dists**2 / (2 * sigma**2))
-        return weights * image_ft
+    weights = dists / np.max(dists)
+    return (weights ** power) * image_ft
     
 
 phase_correlation_cache = {}
