@@ -65,7 +65,7 @@ def combine(composite, f2, offset):
 
 
 phase_correlation_cache = {}
-def phase_correlation(image_a, image_b, correlation_threshold=0., distance_threshold=1., downsample_factor=1, use_skimage=False, full_convolution=True):
+def phase_correlation(image_a, image_b, correlation_threshold=0., distance_threshold=0.8, downsample_factor=1, use_skimage=False, full_convolution=True):
     """
     Compute the relative translation between image_a and image_b
     using phase correlation. Both images must have the same shape.
@@ -111,7 +111,7 @@ def phase_correlation(image_a, image_b, correlation_threshold=0., distance_thres
     corr = fftshift(corr)
     
     if distance_threshold > 0 and distance_threshold < 1:
-        # Mask based on L1 distance
+        # Mask based on L-infinity distance
         fraction_size = list(map(int, np.array(corr.shape) * distance_threshold))
         midpoints = np.array(corr.shape) // 2
         corr = corr[(midpoints[0]-fraction_size[0]//2):(midpoints[0]+fraction_size[0]//2), (midpoints[1]-fraction_size[1]//2):(midpoints[1]+fraction_size[1]//2)]
