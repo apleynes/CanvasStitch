@@ -65,7 +65,7 @@ def combine(composite, f2, offset):
 
 
 phase_correlation_cache = {}
-def phase_correlation(image_a, image_b, correlation_threshold=0., downsample_factor=1, use_skimage=False, full_convolution=True):
+def phase_correlation(image_a, image_b, correlation_threshold=0., distance_threshold=1., downsample_factor=1, use_skimage=False, full_convolution=True):
     """
     Compute the relative translation between image_a and image_b
     using phase correlation. Both images must have the same shape.
@@ -109,7 +109,12 @@ def phase_correlation(image_a, image_b, correlation_threshold=0., downsample_fac
     corr = ifft2(cross_power)
     # For ease of peak finding, shift the zero-frequency component to the center
     corr = fftshift(corr)
-
+    
+    if distance_threshold > 0 and distance_threshold < 1:
+        # Mask based on L1 distance
+        fraction_size = list(map(int, np.array(corr.shape) * distance_threshold))
+        midpoints = np.array(corr.shape) // 2
+        corr = corr[(midpoints[0]-fraction_size[0]//2):(midpoints[0]+fraction_size[0]//2), (midpoints[1]-fraction_size[1]//2):(midpoints[1]+fraction_size[1]//2)]
     # Find peak position in correlation
     max_corr = np.max(np.abs(corr))
     if max_corr < correlation_threshold:
@@ -140,7 +145,7 @@ def stitch_images(fragments, downsample_factor=1, order=1, use_skimage=False):
     offset_matrix = np.zeros((len(fragments), len(fragments), 2))
     # Do in parallel with joblib    
     f1_f2_idx_combinations = list(itertools.combinations(range(len(fragments)), 2))
-    offset_max_corr_results = Parallel(n_jobs=-1)(delayed(phase_correlation)(downsampled_fragments[f1_idx], downsampled_fragments[f2_idx], downsample_factor=downsample_factor, use_skimage=use_skimage) for f1_idx, f2_idx in tqdm(f1_f2_idx_combinations))
+    offset_max_corr_results = Parallel(n_jobs=-1)(delayed(phase_correlation)(downsampled_fragments[f1_idx], downsampled_fragments[f2_idx], downsample_factor=downsample_factor, use_skimage=use_skimage, full_convolution=True) for f1_idx, f2_idx in tqdm(f1_f2_idx_combinations))
     # Unpack the results
     for (f1_idx, f2_idx), (offset, max_corr) in zip(f1_f2_idx_combinations, offset_max_corr_results):
         error = -max_corr
