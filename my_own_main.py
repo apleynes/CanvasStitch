@@ -90,12 +90,12 @@ def phase_correlation(image_a, image_b, correlation_threshold=0., distance_thres
     image_b = rgba2gray(image_b)
     
     if use_skimage:
-        # Pad images to the same size, centered on the middle of the output shape
+        # Pad images to the same size
         image_a, _ = pad_image(image_a, pad_shape)
         image_b, _ = pad_image(image_b, pad_shape)
-        shift, error, phasediff = phase_cross_correlation(image_a, image_b, disambiguate=True, overlap_ratio=correlation_threshold, normalization=None)
+        shift, error, phasediff = phase_cross_correlation(image_a, image_b, disambiguate=full_convolution, overlap_ratio=0.1, normalization=None)
         shift = shift * downsample_factor
-        return shift, -error #-error - phasediff
+        return shift, -error - phasediff
     
     fft_shape = 2 * pad_shape + 1 if full_convolution else pad_shape
     
@@ -257,7 +257,7 @@ def new_stitch_images(fragments, downsample_factor=1, use_skimage=False):
     
 
 
-
+# ! Currently only works if the fragments sequentially along a smooth path since the stitching is done by following the minimum error path.
 if __name__ == "__main__":    
     import matplotlib.pyplot as plt
     from PIL import Image
