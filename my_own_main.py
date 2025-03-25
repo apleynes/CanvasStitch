@@ -3,7 +3,7 @@ from joblib import Parallel, delayed
 from matplotlib import pyplot as plt
 import numpy as np
 import random
-from scipy.fft import fft2, ifft2, fftshift
+from scipy.fft import fft2, ifft2, fftshift, rfft2, irfft2, ifftshift
 import skimage
 import skimage.io
 import itertools
@@ -82,6 +82,24 @@ def combine(composite, f2, offset):
     return new_composite
 
 
+
+def weight_edge_image_ft(image_ft, sigma=0.1, rfft=False):
+    shape = image_ft.shape
+    if not rfft:
+        grid = np.meshgrid(*[np.linspace(-1, 1, s) for s in shape], indexing='ij')
+        grid = np.stack(grid, axis=-1)
+        dists = np.linalg.norm(grid, axis=-1)
+        weights = np.exp(-dists**2 / (2 * sigma**2))
+        weights = ifftshift(weights)
+        return weights * image_ft
+    else:
+        grid = np.meshgrid(*[np.linspace(0, 1, s) for s in shape], indexing='ij')
+        grid = np.stack(grid, axis=-1)
+        dists = np.linalg.norm(grid, axis=-1)
+        weights = np.exp(-dists**2 / (2 * sigma**2))
+        return weights * image_ft
+    
+
 phase_correlation_cache = {}
 
 
@@ -89,10 +107,12 @@ def phase_correlation(
     image_a,
     image_b,
     correlation_threshold=0.0,
-    distance_threshold=0.8,
+    distance_threshold=1.0,
     downsample_factor=1,
     use_skimage=False,
     full_convolution=True,
+    weight_edges=False,
+    use_rfft=True,
 ):
     """
     Compute the relative translation between image_a and image_b
@@ -137,15 +157,27 @@ def phase_correlation(
         return shift, -error - phasediff
 
     fft_shape = 2 * pad_shape + 1 if full_convolution else pad_shape
+    if use_rfft:
+        # fft_shape = pad_shape + 1 if full_convolution else (pad_shape + 1) // 2
+        F_a = rfft2(image_a, fft_shape, norm="ortho")
+        F_b = rfft2(image_b, fft_shape, norm="ortho")
+    else:
+        F_a = fft2(image_a, fft_shape, norm="ortho")
+        F_b = fft2(image_b, fft_shape, norm="ortho")
+    
+    if weight_edges:
+        F_a = weight_edge_image_ft(F_a, rfft=use_rfft)
+        F_b = weight_edge_image_ft(F_b, rfft=use_rfft)
 
-    F_a = fft2(image_a, fft_shape, norm="ortho")
-    F_b = fft2(image_b, fft_shape, norm="ortho")
     # Compute the cross-power spectrum
     cross_power = F_a * np.conj(F_b)
     # Normalize to get only phase information (add a small constant to prevent division by zero)
     cross_power /= np.abs(cross_power) + 1e-8
     # Inverse FFT to obtain correlation
-    corr = ifft2(cross_power)
+    if use_rfft:
+        corr = irfft2(cross_power, norm='ortho')
+    else:
+        corr = ifft2(cross_power, norm='ortho')
     # For ease of peak finding, shift the zero-frequency component to the center
     corr = fftshift(corr)
 
