@@ -131,7 +131,7 @@ def rgba2gray(image):
     return skimage.color.rgb2gray(im)
 
 
-def stitch_images(fragments, downsample_factor=1, order=1, use_skimage=False):
+def stitch_images(fragments, downsample_factor=1, order=1, use_skimage=False, debug=False):
     """Stitch a list of fragments together."""
     # Crop the fragments to be divisible by downsample_factor
     fragments = [fragment[:(fragment.shape[0] // downsample_factor) * downsample_factor, :(fragment.shape[1] // downsample_factor) * downsample_factor] for fragment in fragments]
@@ -154,21 +154,20 @@ def stitch_images(fragments, downsample_factor=1, order=1, use_skimage=False):
         error_matrix[f2_idx, f1_idx] = error
         offset_matrix[f1_idx, f2_idx] = offset
         offset_matrix[f2_idx, f1_idx] = -offset  # reverse the offset for the second fragment
-        
-    print("error_matrix:")
-    for row in error_matrix:
-        for col_val in row:
-            print(f"{col_val:.2f}", end=" ")
-        print()
-    # Mask lower triangular part of error_matrix
-    # mask = np.tril(np.ones_like(error_matrix, dtype=bool), k=-1)
-    # error_matrix[mask] = 1e6
+    
+    if debug:
+        print("error_matrix:")
+        for row in error_matrix:
+            for col_val in row:
+                print(f"{col_val:.2f}", end=" ")
+            print()
     # Create the stitched image by following the minimum error path
     running_offset = np.zeros(2)
     composite = fragments[0]
     f1_idx = 0
     est_offsets = {0: running_offset.copy()}
     placed_fragments = {0}
+    traced_paths = set()
     # Gather all absolute offsets for each fragment
     MAX_ITER = 4 * len(fragments)
     for _ in range(MAX_ITER):
@@ -177,31 +176,30 @@ def stitch_images(fragments, downsample_factor=1, order=1, use_skimage=False):
         error_row[f1_idx] = 1e6
         
         min_indices = np.argsort(error_row)
-        for f2_idx in min_indices:
+        for f2_idx in min_indices:  # TODO: Need to figure this out. Something funny going on since this works but not when I simplify it.
             if f2_idx in placed_fragments:
                 continue
             f2_idx = int(f2_idx)
+            if (f1_idx, f2_idx) in traced_paths:
+                continue
             # placed_fragments.add(f1_idx)
+            traced_paths.add((f1_idx, f2_idx))
             break
         error_val = error_row[f2_idx]
         if error_val >= 1e6:
             break
-        print(f"{f1_idx=} {f2_idx=} {error_val=}")
+        if debug:
+            print(f"{f1_idx=} {f2_idx=} {error_val=}")
         offset_f2_to_f1 = offset_matrix[f1_idx, f2_idx]
         
         running_offset += offset_f2_to_f1
         est_offsets[f2_idx] = running_offset.copy()
-        print(f"{offset_f2_to_f1=} {running_offset=}")
-        error_matrix[f1_idx, f2_idx] = 1e6
-        # error_matrix[f2_idx, f1_idx] = 1e6
+        if debug:
+            print(f"{offset_f2_to_f1=} {running_offset=}")
+        error_matrix[f1_idx, f2_idx] = 1e6  # block forward path
         f1_idx = f2_idx
-        # placed_fragments.add(f1_idx)
-    # assert placed_fragments[-1] == 0, f"{placed_fragments=}"
-    # placed_fragments = placed_fragments[:-1]
         
     assert len(est_offsets) == len(fragments), f"{len(est_offsets)=} {len(fragments)=}"
-    # assert len(placed_fragments) == len(fragments), f"{len(placed_fragments)=} {len(fragments)=}"
-    # assert sorted(placed_fragments) == list(range(len(fragments))), f"{placed_fragments=}"
     
     # create a new composite image by combining all fragments
     min_offset = np.min(np.stack(list(est_offsets.values()), axis=0), axis=0)
