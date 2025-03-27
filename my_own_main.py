@@ -45,7 +45,15 @@ def pad_image(image, pad_shape, center=False):
 
 
 def combine(composite, f2, offset):
-    """Combine two fragments with an offset."""
+    """Combine images with overlap averaging."""
+    # Added safety checks
+    if composite.ndim != f2.ndim:
+        raise ValueError(f"Dimension mismatch: {composite.ndim} vs {f2.ndim}")
+        
+    # Convert to float32 for safe accumulation
+    composite = composite.astype(np.float32)
+    f2 = f2.astype(np.float32)
+    
     # Offset is number of pixels to shift f2 to align with f1
     # Offset is the absolute offset of f2 relative to composite
     # Calculate the expected combined image size using the offset
@@ -82,7 +90,19 @@ def combine(composite, f2, offset):
     return new_composite
 
 
-def weight_edge_image_ft(image_ft, power=1, rfft=False):
+def weight_edge_image_ft(image_ft: np.ndarray, power: int = 1, rfft: bool = False) -> np.ndarray:
+    """Apply edge weighting in frequency domain.
+    
+    Creates distance-based weighting mask to reduce boundary artifacts.
+    
+    Args:
+        image_ft (np.ndarray): Complex FFT of image
+        power (int): Exponent for distance weighting
+        rfft (bool): Whether using real-valued FFT
+        
+    Returns:
+        np.ndarray: Weighted frequency spectrum
+    """
     shape = image_ft.shape
     if not rfft:
         grid = np.meshgrid(*[np.linspace(-1, 1, s) for s in shape], indexing="ij")
@@ -119,18 +139,21 @@ def phase_correlation(
     weight_edges=True,
     use_rfft=True,
 ):
-    """
-    Compute the relative translation between image_a and image_b
-    using phase correlation. Both images must have the same shape.
+    """Compute relative translation between images using phase correlation.
+    
+    Args:
+        image_a (np.ndarray): Reference image (grayscale or RGB)
+        image_b (np.ndarray): Moving image to align with reference
+        correlation_threshold (float): Minimum correlation value to consider
+        distance_threshold (float): Limit search space to this fraction of image
+        downsample_factor (int): Downsampling factor for alignment
+        use_skimage (bool): Use scikit-image's implementation
+        full_convolution (bool): Use full convolution rather than FFT padding
+        weight_edges (bool): Apply frequency domain edge weighting
+        use_rfft (bool): Use real-valued FFT for efficiency
 
     Returns:
-        shift: np.array([dy, dx]) estimated shift such that
-               image_b = shift(image_a). The returned shift reflects
-               the translation to apply to image_b relative to image_a.
-
-    Reference:
-       Kuglin, C. D., & Hines, D. C. (1975). The phase correlation technique.
-       [See also: https://docs.opencv.org/]
+        tuple: (shift vector, max correlation value)
     """
     # key = (image_a.tobytes(), image_b.tobytes())
     # if key in phase_correlation_cache:
@@ -242,28 +265,36 @@ def phase_correlation(
     return shift, max_corr
 
 
-def rgba2gray(image):
+def rgba2gray(image: np.ndarray) -> np.ndarray:
+    """Convert RGBA image to grayscale with alpha handling.
+    
+    Args:
+        image (np.ndarray): Input RGBA image (H, W, 4)
+        
+    Returns:
+        np.ndarray: Grayscale image (H, W)
+        
+    Raises:
+        ValueError: If input is not 4-channel
     """
-    Convert an RGBA image to grayscale.
+    if image.shape[2] != 4:
+        raise ValueError(f"Expected RGBA image, got {image.shape} shape")
+    return skimage.color.rgb2gray(skimage.color.rgba2rgb(image))
 
-    Parameters
-    ----------
-    image : array_like
-        Input image of shape (H, W, 4).
 
-    Returns
-    -------
-    image : array_like
-        Output image of shape (H, W).
+def stitch_images(fragments, downsample_factor=1, order=1, use_skimage=False, debug=False):
+    """Stitch fragments using phase correlation-based alignment.
+    
+    Args:
+        fragments (list): List of image arrays to stitch
+        downsample_factor (int): Factor for pyramid downsampling
+        order (int): Interpolation order for resizing
+        use_skimage (bool): Use scikit-image's phase correlation
+        debug (bool): Enable debugging outputs
+
+    Returns:
+        tuple: (composite image, offset dictionary)
     """
-    im = skimage.color.rgba2rgb(image)
-    return skimage.color.rgb2gray(im)
-
-
-def stitch_images(
-    fragments, downsample_factor=1, order=1, use_skimage=False, debug=False
-):
-    """Stitch a list of fragments together."""
     # Crop the fragments to be divisible by downsample_factor
     fragments = [
         fragment[
@@ -274,7 +305,7 @@ def stitch_images(
     ]
 
     # Downsample the fragments
-    downsampled_fragments = Parallel(n_jobs=-1)(
+    downsampled_fragments = list(Parallel(n_jobs=-1)(
         delayed(skimage.transform.resize)(
             fragment,
             (
@@ -283,9 +314,8 @@ def stitch_images(
             ),
             order=order,
             anti_aliasing=True if order > 0 else False,
-        )
-        for fragment in tqdm(fragments, desc="Downsampling fragments")
-    )
+        ) for fragment in tqdm(fragments, desc="Downsampling fragments")
+    ))
     assert len(fragments) == len(downsampled_fragments)
     # Iterate through the fragments and compute the offset for each fragment against each other fragment
     error_matrix = 1e6 * np.ones((len(fragments), len(fragments)))
@@ -512,12 +542,38 @@ def new_stitch_images(
     weight_edges=False,
     recursion_count=0,
 ):
-    """Stitch a list of fragments together."""
-    print(f"{recursion_count=}")
-    if recursion_count > MAX_RECURSION_COUNT:
-        return fragments[0]
+    """Stitch a list of fragments together using recursive alignment.
+    
+    Args:
+        fragments (list): List of image arrays to stitch together
+        downsample_factor (int): Factor to downsample images for faster alignment
+        order (int): Interpolation order for resizing
+        use_skimage (bool): Whether to use skimage's phase correlation
+        debug (bool): Enable debug outputs
+        weight_edges (bool): Apply edge weighting in frequency domain
+        recursion_count (int): Current recursion depth
+        
+    Returns:
+        np.ndarray: Stitched composite image
+        
+    Raises:
+        ValueError: If fragments list is empty
+        RuntimeError: If maximum recursion depth is exceeded
+    """
+    if len(fragments) < 1:
+        raise ValueError("Empty fragment list provided")
+        
     if len(fragments) == 1:
         return fragments[0]
+        
+    if recursion_count > MAX_RECURSION_COUNT:
+        raise RuntimeError(
+            f"Max recursion depth {MAX_RECURSION_COUNT} reached. "
+            "Check fragment alignment."
+        )
+        
+    print(f"{recursion_count=}")
+    
     if downsample_factor > 1:
         # Crop the fragments to be divisible by downsample_factor
         fragments = [
@@ -603,7 +659,6 @@ def new_stitch_images(
     )
 
 
-# ! Currently only works if the fragments sequentially along a smooth path since the stitching is done by following the minimum error path.
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from PIL import Image
