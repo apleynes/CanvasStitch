@@ -7,3 +7,5 @@ __pycache__
 *.bmp
 *.tiff
 *.ico
+!test_output.png
+!test_images/*.png

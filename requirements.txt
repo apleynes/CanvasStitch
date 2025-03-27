@@ -1,0 +1,8 @@
+numpy==2.2.4
+scipy==1.15.2
+pillow==11.1.0
+scikit-image==0.25.2
+natsort==8.4.0
+joblib==1.4.2
+matplotlib==3.10.1
+tqdm==4.67.1
