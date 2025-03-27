@@ -405,9 +405,9 @@ if __name__ == "__main__":
     parser.add_argument("--output_path", type=str, required=False, default="stitched.png", help="Path to save the stitched image. Defaults to 'stitched.png'.")
     parser.add_argument("--downsample_factor", type=int, required=False, default=4, help="Downsample factor for the fragments. Defaults to 4.")
     parser.add_argument("--order", type=int, required=False, default=0, help="Interpolation order for the fragments. Defaults to 0.")
-    parser.add_argument("--weight_edges", type=bool, action="store_true", required=False, default=False, help="Whether to weight the edges of the fragments. Defaults to False.")
+    parser.add_argument("--weight_edges", action="store_true", required=False, default=False, help="Whether to weight the edges of the fragments. Defaults to False.")
     parser.add_argument("--max_recursion_count", type=int, required=False, default=None, help="Maximum recursion count. Defaults to the number of images if unspecified.")
-    parser.add_argument("--debug", type=bool, action="store_true", required=False, default=False, help="Whether to print debug information. Defaults to False.")
+    parser.add_argument("--debug", action="store_true", required=False, default=False, help="Whether to print debug information. Defaults to False.")
     args = parser.parse_args()
     
     image_paths = get_image_files_in_dir(args.image_dir)

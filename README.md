@@ -17,7 +17,23 @@ pip install -r requirements.txt
 ## Usage
 
 ```bash
-python canvas_stitch.py <image_dir> --output_path <output_path> --downsample_factor <downsample_factor> --order <order> --weight_edges --max_recursion_count <max_recursion_count> --debug
+python canvas_stitch.py [-h] [--output_path OUTPUT_PATH] [--downsample_factor DOWNSAMPLE_FACTOR] [--order ORDER] [--weight_edges] [--max_recursion_count MAX_RECURSION_COUNT] [--debug]
+                        image_dir
+
+positional arguments:
+  image_dir             Path to the directory containing the images to stitch.
+
+options:
+  -h, --help            show this help message and exit
+  --output_path OUTPUT_PATH
+                        Path to save the stitched image. Defaults to 'stitched.png'.
+  --downsample_factor DOWNSAMPLE_FACTOR
+                        Downsample factor for the fragments. Defaults to 4.
+  --order ORDER         Interpolation order for the fragments. Defaults to 0.
+  --weight_edges        Whether to weight the edges of the fragments. Defaults to False.
+  --max_recursion_count MAX_RECURSION_COUNT
+                        Maximum recursion count. Defaults to the number of images if unspecified.
+  --debug               Whether to print debug information. Defaults to False.
 ```
 
 Only `image_dir` is required. All other arguments are optional.
