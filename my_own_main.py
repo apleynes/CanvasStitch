@@ -82,11 +82,10 @@ def combine(composite, f2, offset):
     return new_composite
 
 
-
 def weight_edge_image_ft(image_ft, power=1, rfft=False):
     shape = image_ft.shape
     if not rfft:
-        grid = np.meshgrid(*[np.linspace(-1, 1, s) for s in shape], indexing='ij')
+        grid = np.meshgrid(*[np.linspace(-1, 1, s) for s in shape], indexing="ij")
         grid = np.stack(grid, axis=-1)
         dists = np.linalg.norm(grid, axis=-1)
         dists = ifftshift(dists)
@@ -99,14 +98,16 @@ def weight_edge_image_ft(image_ft, power=1, rfft=False):
                 continue
             c = np.linspace(-1, 1, shape[i])
             coords.append(np.roll(c, shift=-np.where(np.isclose(c.flatten(), 0))[0]))
-        grid = np.meshgrid(*coords, indexing='ij')
+        grid = np.meshgrid(*coords, indexing="ij")
         grid = np.stack(grid, axis=-1)
         dists = np.linalg.norm(grid, axis=-1)
     weights = dists / np.max(dists)
-    return (weights ** power) * image_ft
-    
+    return (weights**power) * image_ft
+
 
 phase_correlation_cache = {}
+
+
 def phase_correlation(
     image_a,
     image_b,
@@ -134,7 +135,7 @@ def phase_correlation(
     # key = (image_a.tobytes(), image_b.tobytes())
     # if key in phase_correlation_cache:
     #     return phase_correlation_cache[key]
-            
+
     dtype_max = 1.0
     if image_a.dtype == np.uint8:
         dtype_max = 255.0
@@ -164,7 +165,7 @@ def phase_correlation(
     )
 
     # Convert to grayscale if needed
-    if image_a.ndim > 2:    
+    if image_a.ndim > 2:
         if image_a.shape[2] == 4:
             image_a = rgba2gray(image_a)
         elif image_a.shape[2] == 3:
@@ -178,7 +179,6 @@ def phase_correlation(
             image_b = skimage.color.rgb2gray(image_b)
         else:
             raise ValueError(f"Unexpected number of channels: {image_b.shape[2]}")
-      
 
     if use_skimage:
         # Pad images to the same size
@@ -197,12 +197,12 @@ def phase_correlation(
     fft_shape = 2 * pad_shape + 1 if full_convolution else pad_shape
     if use_rfft:
         # fft_shape = pad_shape + 1 if full_convolution else (pad_shape + 1) // 2
-        F_a = rfft2(image_a, fft_shape, norm='backward')
-        F_b = rfft2(image_b, fft_shape, norm='backward')
+        F_a = rfft2(image_a, fft_shape, norm="backward")
+        F_b = rfft2(image_b, fft_shape, norm="backward")
     else:
-        F_a = fft2(image_a, fft_shape, norm='backward')
-        F_b = fft2(image_b, fft_shape, norm='backward')
-    
+        F_a = fft2(image_a, fft_shape, norm="backward")
+        F_b = fft2(image_b, fft_shape, norm="backward")
+
     if weight_edges:
         F_a = weight_edge_image_ft(F_a, rfft=use_rfft)
         F_b = weight_edge_image_ft(F_b, rfft=use_rfft)
@@ -213,9 +213,9 @@ def phase_correlation(
     cross_power /= np.abs(cross_power) + 1e-8
     # Inverse FFT to obtain correlation
     if use_rfft:
-        corr = irfft2(cross_power, fft_shape, norm='backward')
+        corr = irfft2(cross_power, fft_shape, norm="backward")
     else:
-        corr = ifft2(cross_power, fft_shape, norm='backward')
+        corr = ifft2(cross_power, fft_shape, norm="backward")
     # For ease of peak finding, shift the zero-frequency component to the center
     corr = fftshift(corr)
 
@@ -428,13 +428,13 @@ def stitch_two_images(image_a, image_b, offset, fine_tune_offset=True):
     # Offset is number of pixels to shift f2 to align with f1
     # Offset is the absolute offset of f2 relative to composite
     # Calculate the expected combined image size using the offset
-    
+
     # Convert to floats to avoid overflow
     image_a = image_a.astype(np.float32)
     image_b = image_b.astype(np.float32)
-    
+
     image_b_shape = image_b.shape
-    
+
     # Fine-tune the offset using the overlapping region
     if fine_tune_offset:
         # Find the overlapping region
@@ -447,8 +447,13 @@ def stitch_two_images(image_a, image_b, offset, fine_tune_offset=True):
         b_start_c = max(0, int(-offset[1]))
         b_end_r = min(image_b_shape[0], int(image_a.shape[0] - offset[0]))
         b_end_c = min(image_b_shape[1], int(image_a.shape[1] - offset[1]))
-        
-        if (a_end_r - a_start_r) > 0 and (a_end_c - a_start_c) > 0 and (b_end_r - b_start_r) > 0 and (b_end_c - b_start_c) > 0:
+
+        if (
+            (a_end_r - a_start_r) > 0
+            and (a_end_c - a_start_c) > 0
+            and (b_end_r - b_start_r) > 0
+            and (b_end_c - b_start_c) > 0
+        ):
             additional_offset, _ = phase_correlation(
                 image_a[a_start_r:a_end_r, a_start_c:a_end_c],
                 image_b[b_start_r:b_end_r, b_start_c:b_end_c],
@@ -496,8 +501,16 @@ def stitch_two_images(image_a, image_b, offset, fine_tune_offset=True):
 
 
 MAX_RECURSION_COUNT = 10
+
+
 def new_stitch_images(
-    fragments, downsample_factor=1, order=1, use_skimage=False, debug=False, weight_edges=False, recursion_count=0
+    fragments,
+    downsample_factor=1,
+    order=1,
+    use_skimage=False,
+    debug=False,
+    weight_edges=False,
+    recursion_count=0,
 ):
     """Stitch a list of fragments together."""
     print(f"{recursion_count=}")
@@ -545,7 +558,9 @@ def new_stitch_images(
             full_convolution=True,
             weight_edges=weight_edges,
         )
-        for f1_idx, f2_idx in tqdm(f1_f2_idx_combinations, desc="Computing cross correlation")
+        for f1_idx, f2_idx in tqdm(
+            f1_f2_idx_combinations, desc="Computing cross correlation"
+        )
     )
     # Unpack the results
     for (f1_idx, f2_idx), (offset, max_corr) in zip(
@@ -557,39 +572,35 @@ def new_stitch_images(
         offset_matrix[
             f2_idx, f1_idx
         ] = -offset  # reverse the offset for the second fragment
-        
+
     new_fragments = []
     placed_fragments = set()
     for f1_idx in tqdm(range(len(fragments)), desc="Stitching fragments"):
         if f1_idx in placed_fragments:
             continue
         f2_idx = np.argmax(cross_correlation_matrix[f1_idx])
-        if f2_idx in placed_fragments:  # Completely skip if the fragment it would match with has already been taken, revisit it on later recursion
+        if (
+            f2_idx in placed_fragments
+        ):  # Completely skip if the fragment it would match with has already been taken, revisit it on later recursion
             new_fragments.append(fragments[f1_idx])
             continue
         offset = offset_matrix[f1_idx, f2_idx]
-        # # Fine-tune the offset
-        # if downsample_factor > 1:
-        #     additional_offset, _ = phase_correlation(
-        #         fragments[f1_idx],
-        #         fragments[f2_idx],
-        #         downsample_factor=1,
-        #         use_skimage=use_skimage,
-        #         full_convolution=False,
-        #         weight_edges=weight_edges,
-        #     )
-        #     offset += additional_offset
-        # print(f"{offset=}")
         composite = stitch_two_images(fragments[f1_idx], fragments[f2_idx], offset)
         new_fragments.append(composite)
         placed_fragments.add(f1_idx)
         placed_fragments.add(f2_idx)
 
-
     print(f"{len(fragments)=}")
     print(f"{len(new_fragments)=}")
     # Recursively stitch the new fragments together
-    return new_stitch_images(new_fragments, downsample_factor=downsample_factor, order=order, use_skimage=use_skimage, debug=debug, recursion_count=recursion_count + 1)
+    return new_stitch_images(
+        new_fragments,
+        downsample_factor=downsample_factor,
+        order=order,
+        use_skimage=use_skimage,
+        debug=debug,
+        recursion_count=recursion_count + 1,
+    )
 
 
 # ! Currently only works if the fragments sequentially along a smooth path since the stitching is done by following the minimum error path.
@@ -599,100 +610,29 @@ if __name__ == "__main__":
 
     image_paths = glob.glob("test_images/*.png")
     image_paths = natsort.natsorted(image_paths)
-    fragments = [np.array(Image.open(path)) / 255.0 for path in image_paths]#[:10]
+    fragments = [np.array(Image.open(path)) / 255.0 for path in image_paths]  # [:10]
     random.shuffle(fragments)
-    
+
     # Convert fragments to RGB if RGBA
-    fragments = [fragment[:, :, :3] if fragment.shape[2] == 4 else fragment for fragment in fragments]
-    
-    # # Preview fragments
-    # plt.figure(figsize=(8, 8))
-    # for i, fragment in enumerate(fragments):
-    #     plt.subplot(2, 5, i + 1)
-    #     plt.imshow(fragment)
-    #     plt.title(f"Fragment {i}")
-    #     plt.axis('off')
-    # plt.show()
+    fragments = [
+        fragment[:, :, :3] if fragment.shape[2] == 4 else fragment
+        for fragment in fragments
+    ]
 
     # Downsample the fragments
     downsample_factor = 8
     order = 1
     stitched = new_stitch_images(
-        fragments, downsample_factor=downsample_factor, order=order, use_skimage=False, weight_edges=True
+        fragments,
+        downsample_factor=downsample_factor,
+        order=order,
+        use_skimage=False,
+        weight_edges=True,
     )
-
-    # print("Estimated Offsets:")
-    # for (idx, off) in est_offsets.items():
-    #     print(f"Fragment {idx}: {off}")
 
     # Show the stitched image
     plt.figure(figsize=(8, 8))
     plt.imshow(stitched)
     plt.title("Stitched Image")
-    # plt.axis('off')
     plt.show()
     skimage.io.imsave("stitched.png", (stitched * 255).astype(np.uint8))
-
-
-# if __name__ == '__main__':
-#     # For demonstration purposes, we'll simulate a set of fragments from an image.
-#     # In practice, you would load real images (for example, using imageio or OpenCV)
-#     import matplotlib.pyplot as plt
-
-#     # Create a synthetic test image
-#     base_image = skimage.color.rgb2gray(skimage.data.astronaut())
-#     # base_image = skimage.data.camera()
-#     # rng = np.random.RandomState(42)
-#     # base_image = rng.randint(0, 255, (200, 200)).astype(np.uint8)
-
-#     # Generate fragments by cropping overlapping regions
-#     fragments = []
-#     # Offsets for the synthetic fragments (simulated translations)
-#     image_size = min(base_image.shape)
-#     skip_size = image_size // 8
-#     y_offsets = range(0, image_size, skip_size)
-#     x_offsets = range(0, image_size, skip_size)
-#     true_offsets = [np.array([y_offset, x_offset]) for y_offset in y_offsets for x_offset in x_offsets]
-#     # Shuffle the offsets
-#     # rng = np.random.RandomState(42)
-#     # rng.shuffle(true_offsets)
-#     np.random.shuffle(true_offsets)
-#     fragment_size = image_size // 3
-#     assert skip_size < fragment_size
-#     print(f"{skip_size=} {fragment_size=}")
-
-#     for offset in true_offsets:
-#         r_offset, c_offset = offset
-#         # Define a bounding box for the fragment
-#         start_r = max(0, 0 + r_offset)
-#         start_c = max(0, 0 + c_offset)
-#         end_r = min(image_size, fragment_size + r_offset)
-#         end_c = min(image_size, fragment_size + c_offset)
-#         fragment = base_image[start_r:end_r, start_c:end_c].copy()
-#         fragments.append(fragment.astype(np.float32))
-
-#     # # Visualize the fragments
-#     # plt.figure(figsize=(10, 10))
-#     # for i, fragment in enumerate(fragments):
-#     #     plt.subplot(1, len(fragments), i+1)
-#     #     plt.imshow(fragment, cmap='gray')
-#     #     plt.title(f"Fragment {i}")
-#     #     # plt.axis('off')
-#     # plt.show()
-#     # Stitch fragments together using our defined functions
-#     stitched, est_offsets = stitch_images(fragments)
-
-#     print("Estimated Offsets:")
-#     for (idx, off), (true_idx, true_off) in zip(est_offsets.items(), enumerate(true_offsets)):
-#         print(f"Fragment {idx}: {off}, True {true_idx}: {true_off}")
-
-#     # Show the stitched image
-#     plt.figure(figsize=(8, 8))
-#     plt.subplot(1, 2, 1)
-#     plt.imshow(base_image, cmap='gray')
-#     plt.title("Base Image")
-#     plt.subplot(1, 2, 2)
-#     plt.imshow(stitched, cmap='gray')
-#     plt.title("Stitched Image")
-#     # plt.axis('off')
-#     plt.show()
