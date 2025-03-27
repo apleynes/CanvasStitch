@@ -423,7 +423,7 @@ def stitch_images(
     return composite, est_offsets
 
 
-def stitch_two_images(image_a, image_b, offset):
+def stitch_two_images(image_a, image_b, offset, fine_tune_offset=True):
     """Combine two fragments with an offset."""
     # Offset is number of pixels to shift f2 to align with f1
     # Offset is the absolute offset of f2 relative to composite
@@ -434,6 +434,30 @@ def stitch_two_images(image_a, image_b, offset):
     image_b = image_b.astype(np.float32)
     
     image_b_shape = image_b.shape
+    
+    # Fine-tune the offset using the overlapping region
+    if fine_tune_offset:
+        # Find the overlapping region
+        a_start_r = max(0, int(offset[0]))
+        a_start_c = max(0, int(offset[1]))
+        a_end_r = min(image_a.shape[0], int(offset[0] + image_b_shape[0]))
+        a_end_c = min(image_a.shape[1], int(offset[1] + image_b_shape[1]))
+
+        b_start_r = max(0, int(-offset[0]))
+        b_start_c = max(0, int(-offset[1]))
+        b_end_r = min(image_b_shape[0], int(image_a.shape[0] - offset[0]))
+        b_end_c = min(image_b_shape[1], int(image_a.shape[1] - offset[1]))
+        
+        if (a_end_r - a_start_r) > 0 and (a_end_c - a_start_c) > 0 and (b_end_r - b_start_r) > 0 and (b_end_c - b_start_c) > 0:
+            additional_offset, _ = phase_correlation(
+                image_a[a_start_r:a_end_r, a_start_c:a_end_c],
+                image_b[b_start_r:b_end_r, b_start_c:b_end_c],
+                downsample_factor=1,
+                use_skimage=False,
+                full_convolution=False,
+                weight_edges=False,
+            )
+            offset += additional_offset
 
     start_y = offset[0]
     start_x = offset[1]
@@ -573,7 +597,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from PIL import Image
 
-    image_paths = glob.glob("image_dir/*.png")
+    image_paths = glob.glob("test_images/*.png")
     image_paths = natsort.natsorted(image_paths)
     fragments = [np.array(Image.open(path)) / 255.0 for path in image_paths]#[:10]
     random.shuffle(fragments)
@@ -591,7 +615,7 @@ if __name__ == "__main__":
     # plt.show()
 
     # Downsample the fragments
-    downsample_factor = 4
+    downsample_factor = 8
     order = 1
     stitched = new_stitch_images(
         fragments, downsample_factor=downsample_factor, order=order, use_skimage=False, weight_edges=True
