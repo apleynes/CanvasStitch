@@ -83,7 +83,7 @@ def combine(composite, f2, offset):
 
 
 
-def weight_edge_image_ft(image_ft, power=2, rfft=False):
+def weight_edge_image_ft(image_ft, power=1, rfft=False):
     shape = image_ft.shape
     if not rfft:
         grid = np.meshgrid(*[np.linspace(-1, 1, s) for s in shape], indexing='ij')
@@ -107,8 +107,6 @@ def weight_edge_image_ft(image_ft, power=2, rfft=False):
     
 
 phase_correlation_cache = {}
-
-
 def phase_correlation(
     image_a,
     image_b,
@@ -117,7 +115,7 @@ def phase_correlation(
     downsample_factor=1,
     use_skimage=False,
     full_convolution=True,
-    weight_edges=False,
+    weight_edges=True,
     use_rfft=True,
 ):
     """
@@ -136,6 +134,26 @@ def phase_correlation(
     # key = (image_a.tobytes(), image_b.tobytes())
     # if key in phase_correlation_cache:
     #     return phase_correlation_cache[key]
+            
+    dtype_max = 1.0
+    if image_a.dtype == np.uint8:
+        dtype_max = 255.0
+    elif image_a.dtype == np.float32:
+        dtype_max = 1.0
+    elif image_a.dtype == np.float64:
+        dtype_max = 1.0
+    elif image_a.dtype == np.int16:
+        dtype_max = 32767.0
+    elif image_a.dtype == np.int32:
+        dtype_max = 2147483647.0
+    elif image_a.dtype == np.int64:
+        dtype_max = 9223372036854775807.0
+    elif image_a.dtype == np.uint16:
+        dtype_max = 65535.0
+    elif image_a.dtype == np.uint32:
+        dtype_max = 4294967295.0
+    elif image_a.dtype == np.uint64:
+        dtype_max = 18446744073709551615.0
 
     # Compute FFTs of both images.
     pad_shape = np.array(
@@ -145,8 +163,22 @@ def phase_correlation(
         ]
     )
 
-    image_a = rgba2gray(image_a)
-    image_b = rgba2gray(image_b)
+    # Convert to grayscale if needed
+    if image_a.ndim > 2:    
+        if image_a.shape[2] == 4:
+            image_a = rgba2gray(image_a)
+        elif image_a.shape[2] == 3:
+            image_a = skimage.color.rgb2gray(image_a)
+        else:
+            raise ValueError(f"Unexpected number of channels: {image_a.shape[2]}")
+    if image_b.ndim > 2:
+        if image_b.shape[2] == 4:
+            image_b = rgba2gray(image_b)
+        elif image_b.shape[2] == 3:
+            image_b = skimage.color.rgb2gray(image_b)
+        else:
+            raise ValueError(f"Unexpected number of channels: {image_b.shape[2]}")
+      
 
     if use_skimage:
         # Pad images to the same size
@@ -165,11 +197,11 @@ def phase_correlation(
     fft_shape = 2 * pad_shape + 1 if full_convolution else pad_shape
     if use_rfft:
         # fft_shape = pad_shape + 1 if full_convolution else (pad_shape + 1) // 2
-        F_a = rfft2(image_a, fft_shape, norm="ortho")
-        F_b = rfft2(image_b, fft_shape, norm="ortho")
+        F_a = rfft2(image_a, fft_shape, norm='backward')
+        F_b = rfft2(image_b, fft_shape, norm='backward')
     else:
-        F_a = fft2(image_a, fft_shape, norm="ortho")
-        F_b = fft2(image_b, fft_shape, norm="ortho")
+        F_a = fft2(image_a, fft_shape, norm='backward')
+        F_b = fft2(image_b, fft_shape, norm='backward')
     
     if weight_edges:
         F_a = weight_edge_image_ft(F_a, rfft=use_rfft)
@@ -181,9 +213,9 @@ def phase_correlation(
     cross_power /= np.abs(cross_power) + 1e-8
     # Inverse FFT to obtain correlation
     if use_rfft:
-        corr = irfft2(cross_power, norm='ortho')
+        corr = irfft2(cross_power, fft_shape, norm='backward')
     else:
-        corr = ifft2(cross_power, norm='ortho')
+        corr = ifft2(cross_power, fft_shape, norm='backward')
     # For ease of peak finding, shift the zero-frequency component to the center
     corr = fftshift(corr)
 
@@ -312,6 +344,7 @@ def stitch_images(
         if debug:
             print(f"{offset_f2_to_f1=} {running_offset=}")
         error_matrix[f1_idx, f2_idx] = 1e6  # block forward path
+        error_matrix[f2_idx, f1_idx] = 1e6  # block backward path
         f1_idx = f2_idx
 
     assert len(est_offsets) == len(fragments), f"{len(est_offsets)=} {len(fragments)=}"
@@ -377,22 +410,149 @@ def stitch_images(
     return composite, est_offsets
 
 
-def new_stitch_images(fragments, downsample_factor=1, use_skimage=False):
-    """Stitch a list of fragments together."""
-    # Downsample the fragments
-    downsampled_fragments = Parallel(n_jobs=-1)(
-        delayed(skimage.transform.resize)(
-            fragment,
-            (
-                fragment.shape[0] // downsample_factor,
-                fragment.shape[1] // downsample_factor,
-            ),
-            order=1,
-            anti_aliasing=True,
-        )
-        for fragment in tqdm(fragments, desc="Downsampling fragments")
+def stitch_two_images(image_a, image_b, offset):
+    """Combine two fragments with an offset."""
+    # Offset is number of pixels to shift f2 to align with f1
+    # Offset is the absolute offset of f2 relative to composite
+    # Calculate the expected combined image size using the offset
+    
+    # Convert to floats to avoid overflow
+    image_a = image_a.astype(np.float32)
+    image_b = image_b.astype(np.float32)
+    
+    image_b_shape = image_b.shape
+
+    start_y = offset[0]
+    start_x = offset[1]
+    end_y = start_y + image_b_shape[0]
+    end_x = start_x + image_b_shape[1]
+    top_pad = int(-min(0, start_y))
+    left_pad = int(-min(0, start_x))
+    bottom_pad = int(max(0, end_y - image_a.shape[0]))
+    right_pad = int(max(0, end_x - image_a.shape[1]))
+
+    if image_a.ndim == 2:
+        pad_values = ((top_pad, bottom_pad), (left_pad, right_pad))
+    else:
+        pad_values = ((top_pad, bottom_pad), (left_pad, right_pad), (0, 0))
+    new_composite = np.pad(
+        image_a,
+        pad_values,
+        mode="constant",
+        constant_values=0,
     )
-    assert len(fragments) == len(downsampled_fragments)
+    counts = np.zeros(new_composite.shape)
+    # counts[
+    #     top_pad : top_pad + image_a.shape[0], left_pad : left_pad + image_a.shape[1], :
+    # ] = 1
+    counts[new_composite > 0] = 1  # To also include pixels already in the composite
+    # Place new fragment in the new composite
+    start_r = int(top_pad + start_y)
+    start_c = int(left_pad + start_x)
+    end_r = int(start_r + image_b_shape[0])
+    end_c = int(start_c + image_b_shape[1])
+    new_composite[start_r:end_r, start_c:end_c, :] += image_b
+    counts[start_r:end_r, start_c:end_c, :] += 1
+    counts[counts == 0] = 1
+    new_composite = new_composite / counts
+    return new_composite
+
+
+MAX_RECURSION_COUNT = 10
+def new_stitch_images(
+    fragments, downsample_factor=1, order=1, use_skimage=False, debug=False, weight_edges=False, recursion_count=0
+):
+    """Stitch a list of fragments together."""
+    print(f"{recursion_count=}")
+    if recursion_count > MAX_RECURSION_COUNT:
+        return fragments[0]
+    if len(fragments) == 1:
+        return fragments[0]
+    if downsample_factor > 1:
+        # Crop the fragments to be divisible by downsample_factor
+        fragments = [
+            fragment[
+                : (fragment.shape[0] // downsample_factor) * downsample_factor,
+                : (fragment.shape[1] // downsample_factor) * downsample_factor,
+            ]
+            for fragment in fragments
+        ]
+
+        # Downsample the fragments
+        downsampled_fragments = Parallel(n_jobs=-1)(
+            delayed(skimage.transform.resize)(
+                fragment,
+                (
+                    fragment.shape[0] // downsample_factor,
+                    fragment.shape[1] // downsample_factor,
+                ),
+                order=order,
+                anti_aliasing=True if order > 0 else False,
+            )
+            for fragment in tqdm(fragments, desc="Downsampling fragments")
+        )
+        assert len(fragments) == len(downsampled_fragments)
+    else:
+        downsampled_fragments = fragments
+    # Iterate through the fragments and compute the offset for each fragment against each other fragment
+    cross_correlation_matrix = np.zeros((len(fragments), len(fragments)))
+    offset_matrix = np.zeros((len(fragments), len(fragments), 2))
+    # Do in parallel with joblib
+    f1_f2_idx_combinations = list(itertools.combinations(range(len(fragments)), 2))
+    offset_max_corr_results = Parallel(n_jobs=-1)(
+        delayed(phase_correlation)(
+            downsampled_fragments[f1_idx],
+            downsampled_fragments[f2_idx],
+            downsample_factor=downsample_factor,
+            use_skimage=use_skimage,
+            full_convolution=True,
+            weight_edges=weight_edges,
+        )
+        for f1_idx, f2_idx in tqdm(f1_f2_idx_combinations, desc="Computing cross correlation")
+    )
+    # Unpack the results
+    for (f1_idx, f2_idx), (offset, max_corr) in zip(
+        f1_f2_idx_combinations, offset_max_corr_results
+    ):
+        cross_correlation_matrix[f1_idx, f2_idx] = max_corr
+        cross_correlation_matrix[f2_idx, f1_idx] = max_corr
+        offset_matrix[f1_idx, f2_idx] = offset
+        offset_matrix[
+            f2_idx, f1_idx
+        ] = -offset  # reverse the offset for the second fragment
+        
+    new_fragments = []
+    placed_fragments = set()
+    for f1_idx in tqdm(range(len(fragments)), desc="Stitching fragments"):
+        if f1_idx in placed_fragments:
+            continue
+        f2_idx = np.argmax(cross_correlation_matrix[f1_idx])
+        if f2_idx in placed_fragments:  # Completely skip if the fragment it would match with has already been taken, revisit it on later recursion
+            new_fragments.append(fragments[f1_idx])
+            continue
+        offset = offset_matrix[f1_idx, f2_idx]
+        # # Fine-tune the offset
+        # if downsample_factor > 1:
+        #     additional_offset, _ = phase_correlation(
+        #         fragments[f1_idx],
+        #         fragments[f2_idx],
+        #         downsample_factor=1,
+        #         use_skimage=use_skimage,
+        #         full_convolution=False,
+        #         weight_edges=weight_edges,
+        #     )
+        #     offset += additional_offset
+        # print(f"{offset=}")
+        composite = stitch_two_images(fragments[f1_idx], fragments[f2_idx], offset)
+        new_fragments.append(composite)
+        placed_fragments.add(f1_idx)
+        placed_fragments.add(f2_idx)
+
+
+    print(f"{len(fragments)=}")
+    print(f"{len(new_fragments)=}")
+    # Recursively stitch the new fragments together
+    return new_stitch_images(new_fragments, downsample_factor=downsample_factor, order=order, use_skimage=use_skimage, debug=debug, recursion_count=recursion_count + 1)
 
 
 # ! Currently only works if the fragments sequentially along a smooth path since the stitching is done by following the minimum error path.
@@ -402,14 +562,17 @@ if __name__ == "__main__":
 
     image_paths = glob.glob("image_dir/*.png")
     image_paths = natsort.natsorted(image_paths)
-    fragments = [np.array(Image.open(path)) / 255.0 for path in image_paths]  # [:10]
-    # random.shuffle(fragments)
+    fragments = [np.array(Image.open(path)) / 255.0 for path in image_paths][:10]
+    random.shuffle(fragments)
+    
+    # Convert fragments to RGB if RGBA
+    fragments = [fragment[:, :, :3] if fragment.shape[2] == 4 else fragment for fragment in fragments]
 
     # Downsample the fragments
     downsample_factor = 4
     order = 1
-    stitched, est_offsets = stitch_images(
-        fragments, downsample_factor=downsample_factor, order=order, use_skimage=False
+    stitched = new_stitch_images(
+        fragments, downsample_factor=downsample_factor, order=order, use_skimage=False, weight_edges=True
     )
 
     # print("Estimated Offsets:")
