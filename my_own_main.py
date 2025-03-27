@@ -243,6 +243,19 @@ def phase_correlation(
 
 
 def rgba2gray(image):
+    """
+    Convert an RGBA image to grayscale.
+
+    Parameters
+    ----------
+    image : array_like
+        Input image of shape (H, W, 4).
+
+    Returns
+    -------
+    image : array_like
+        Output image of shape (H, W).
+    """
     im = skimage.color.rgba2rgb(image)
     return skimage.color.rgb2gray(im)
 
@@ -441,7 +454,7 @@ def stitch_two_images(image_a, image_b, offset):
         mode="constant",
         constant_values=0,
     )
-    counts = np.zeros(new_composite.shape)
+    counts = np.zeros(new_composite.shape, dtype=int)
     # counts[
     #     top_pad : top_pad + image_a.shape[0], left_pad : left_pad + image_a.shape[1], :
     # ] = 1
@@ -452,7 +465,7 @@ def stitch_two_images(image_a, image_b, offset):
     end_r = int(start_r + image_b_shape[0])
     end_c = int(start_c + image_b_shape[1])
     new_composite[start_r:end_r, start_c:end_c, :] += image_b
-    counts[start_r:end_r, start_c:end_c, :] += 1
+    counts[start_r:end_r, start_c:end_c, :] += (image_b > 0).astype(int)
     counts[counts == 0] = 1
     new_composite = new_composite / counts
     return new_composite
@@ -562,11 +575,20 @@ if __name__ == "__main__":
 
     image_paths = glob.glob("image_dir/*.png")
     image_paths = natsort.natsorted(image_paths)
-    fragments = [np.array(Image.open(path)) / 255.0 for path in image_paths][:10]
+    fragments = [np.array(Image.open(path)) / 255.0 for path in image_paths]#[:10]
     random.shuffle(fragments)
     
     # Convert fragments to RGB if RGBA
     fragments = [fragment[:, :, :3] if fragment.shape[2] == 4 else fragment for fragment in fragments]
+    
+    # # Preview fragments
+    # plt.figure(figsize=(8, 8))
+    # for i, fragment in enumerate(fragments):
+    #     plt.subplot(2, 5, i + 1)
+    #     plt.imshow(fragment)
+    #     plt.title(f"Fragment {i}")
+    #     plt.axis('off')
+    # plt.show()
 
     # Downsample the fragments
     downsample_factor = 4
