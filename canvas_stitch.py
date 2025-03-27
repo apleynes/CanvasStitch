@@ -1,5 +1,6 @@
 
 import glob
+import os
 from joblib import Parallel, delayed
 from matplotlib import pyplot as plt
 import numpy as np
@@ -12,6 +13,9 @@ from tqdm import tqdm
 from skimage.registration import phase_cross_correlation
 import natsort
 import argparse
+import matplotlib.pyplot as plt
+from PIL import Image
+
 
 
 def weight_edge_image_ft(image_ft: np.ndarray, power: int = 1, rfft: bool = False) -> np.ndarray:
@@ -389,36 +393,45 @@ def stitch_images(
     )
 
 
-if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-    from PIL import Image
 
-    image_paths = glob.glob("image_dir/*.png")
+def get_image_files_in_dir(image_dir: str) -> list[str]:
+    """Get all image files in a directory."""
+    # Get all files in the directory
+    files = os.listdir(image_dir)
+    # Filter out non-image files
+    image_paths = [os.path.join(image_dir, file) for file in files if file.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".tiff"))]
     image_paths = natsort.natsorted(image_paths)
-    fragments = [np.array(Image.open(path)) / 255.0 for path in image_paths]
+    return image_paths
 
-    # # Convert fragments to RGB if RGBA
-    # fragments = [
-    #     skimage.color.rgba2rgb(fragment) if fragment.shape[-1] == 4 else fragment  # Assuming channels are last
-    #     for fragment in fragments
-    # ]
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("image_dir", type=str, help="Path to the directory containing the images to stitch.")
+    parser.add_argument("--output_path", type=str, required=False, default="stitched.png", help="Path to save the stitched image. Defaults to 'stitched.png'.")
+    parser.add_argument("--downsample_factor", type=int, required=False, default=4, help="Downsample factor for the fragments. Defaults to 4.")
+    parser.add_argument("--order", type=int, required=False, default=0, help="Interpolation order for the fragments. Defaults to 0.")
+    parser.add_argument("--weight_edges", type=bool, action="store_true", required=False, default=False, help="Whether to weight the edges of the fragments. Defaults to False.")
+    parser.add_argument("--max_recursion_count", type=int, required=False, default=None, help="Maximum recursion count. Defaults to the number of images if unspecified.")
+    parser.add_argument("--debug", type=bool, action="store_true", required=False, default=False, help="Whether to print debug information. Defaults to False.")
+    args = parser.parse_args()
     
-    max_recursion_count = len(fragments)
+    image_paths = get_image_files_in_dir(args.image_dir)
+    fragments = [np.array(Image.open(path)) / 255.0 for path in image_paths]
+    max_recursion_count = len(fragments) if args.max_recursion_count is None else args.max_recursion_count
 
     # Downsample the fragments
-    downsample_factor = 4
-    order = 0
+    downsample_factor = args.downsample_factor
+    order = args.order
+    weight_edges = args.weight_edges
+    debug = args.debug
     stitched = stitch_images(
         fragments,
         downsample_factor=downsample_factor,
         order=order,
-        weight_edges=False,
+        weight_edges=weight_edges,
         max_recursion_count=max_recursion_count,
+        debug=debug,
     )
 
-    # Show the stitched image
-    plt.figure(figsize=(8, 8))
-    plt.imshow(stitched)
-    plt.title("Stitched Image")
-    plt.show()
-    skimage.io.imsave("stitched.png", (stitched * 255).astype(np.uint8))
+    # Save the stitched image
+    Image.fromarray((stitched * 255).astype(np.uint8)).save(args.output_path)
